@@ -7,6 +7,8 @@ import 'add_material_purchase_screen.dart';
 import 'add_material_screen.dart';
 import 'adjust_material_stock_screen.dart';
 import 'material_purchase_history_screen.dart';
+import 'material_stock_movement_history_screen.dart';
+import 'adjust_material_stock_adjustment_screen.dart';
 
 class MaterialDetailsScreen extends StatefulWidget {
   const MaterialDetailsScreen({super.key, required this.materialId});
@@ -38,8 +40,26 @@ class _MaterialDetailsScreenState extends State<MaterialDetailsScreen> {
   @override
   void initState() {
     super.initState();
-
     _loadMaterial();
+  }
+
+  Future<void> _openStockAdjustment() async {
+    if (_material == null) {
+      return;
+    }
+
+    final bool? changed = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => AdjustMaterialStockAdjustmentScreen(
+          material: _material!,
+          currentStock: _currentStock,
+        ),
+      ),
+    );
+
+    if (changed == true) {
+      await _loadMaterial();
+    }
   }
 
   Future<void> _loadMaterial() async {
@@ -122,6 +142,21 @@ class _MaterialDetailsScreenState extends State<MaterialDetailsScreen> {
     await _loadMaterial();
   }
 
+  Future<void> _openStockMovementHistory() async {
+    if (_material == null) {
+      return;
+    }
+
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) =>
+            MaterialStockMovementHistoryScreen(material: _material!),
+      ),
+    );
+
+    await _loadMaterial();
+  }
+
   Future<void> _removeStock() async {
     if (_material == null) {
       return;
@@ -162,8 +197,8 @@ class _MaterialDetailsScreenState extends State<MaterialDetailsScreen> {
         return AlertDialog(
           title: const Text('Deactivate material?'),
           content: const Text(
-            'This material will no longer appear in the active '
-            'materials list.',
+            'This material will no longer appear '
+            'in the active materials list.',
           ),
           actions: [
             TextButton(
@@ -355,7 +390,8 @@ class _MaterialDetailsScreenState extends State<MaterialDetailsScreen> {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        'Stock is at or below the minimum level.',
+                        'Stock is at or below '
+                        'the minimum level.',
                         style: TextStyle(
                           color: Colors.red.shade700,
                           fontWeight: FontWeight.w500,
@@ -388,11 +424,27 @@ class _MaterialDetailsScreenState extends State<MaterialDetailsScreen> {
         ),
 
         const SizedBox(height: 12),
+        
+        OutlinedButton.icon(
+          onPressed: _openStockAdjustment,
+          icon: const Icon(Icons.tune),
+          label: const Text('Stock Adjustment'),
+        ),
+
+        const SizedBox(height: 12),
 
         OutlinedButton.icon(
           onPressed: _openPurchaseHistory,
           icon: const Icon(Icons.history),
           label: const Text('Purchase History'),
+        ),
+
+        const SizedBox(height: 12),
+
+        OutlinedButton.icon(
+          onPressed: _openStockMovementHistory,
+          icon: const Icon(Icons.swap_vert),
+          label: const Text('Stock Movement History'),
         ),
 
         const SizedBox(height: 16),

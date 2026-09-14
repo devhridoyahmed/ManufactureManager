@@ -1,7 +1,7 @@
 import 'package:sqflite/sqflite.dart';
 
 class DatabaseSchema {
-  static const int version = 5;
+  static const int version = 8;
 
   static Future<void> create(Database db) async {
     await db.execute('''
@@ -106,6 +106,66 @@ class DatabaseSchema {
     ''');
 
     await db.execute('''
+  CREATE TABLE recipes (
+    id TEXT PRIMARY KEY,
+    business_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT,
+    labour_hours REAL NOT NULL DEFAULT 0,
+    labour_rate REAL NOT NULL DEFAULT 0,
+    notes TEXT,
+    is_active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE (business_id, name),
+    FOREIGN KEY (business_id)
+      REFERENCES businesses(id)
+      ON DELETE CASCADE
+  )
+''');
+
+    await db.execute('''
+  CREATE TABLE recipe_ingredients (
+    id TEXT PRIMARY KEY,
+    business_id TEXT NOT NULL,
+    recipe_id TEXT NOT NULL,
+    material_id TEXT,
+    component_recipe_id TEXT,
+    quantity REAL NOT NULL,
+    unit_id TEXT NOT NULL,
+    notes TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+
+    CHECK (
+      (material_id IS NOT NULL AND component_recipe_id IS NULL)
+      OR
+      (material_id IS NULL AND component_recipe_id IS NOT NULL)
+    ),
+
+    FOREIGN KEY (business_id)
+      REFERENCES businesses(id)
+      ON DELETE CASCADE,
+
+    FOREIGN KEY (recipe_id)
+      REFERENCES recipes(id)
+      ON DELETE CASCADE,
+
+    FOREIGN KEY (material_id)
+      REFERENCES materials(id)
+      ON DELETE RESTRICT,
+
+    FOREIGN KEY (component_recipe_id)
+      REFERENCES recipes(id)
+      ON DELETE RESTRICT,
+
+    FOREIGN KEY (unit_id)
+      REFERENCES units(id)
+      ON DELETE RESTRICT
+  )
+''');
+
+    await db.execute('''
       CREATE TABLE material_purchases (
         id TEXT PRIMARY KEY,
         business_id TEXT NOT NULL,
@@ -195,6 +255,31 @@ class DatabaseSchema {
       CREATE INDEX idx_material_stock_movements_business
       ON material_stock_movements(business_id)
     ''');
+
+    await db.execute('''
+  CREATE INDEX idx_recipes_business
+  ON recipes(business_id)
+''');
+
+    await db.execute('''
+  CREATE INDEX idx_recipe_ingredients_recipe
+  ON recipe_ingredients(recipe_id)
+''');
+
+    await db.execute('''
+  CREATE INDEX idx_recipe_ingredients_material
+  ON recipe_ingredients(material_id)
+''');
+
+    await db.execute('''
+  CREATE INDEX idx_recipe_ingredients_business
+  ON recipe_ingredients(business_id)
+''');
+
+    await db.execute('''
+  CREATE INDEX idx_recipe_ingredients_component_recipe
+  ON recipe_ingredients(component_recipe_id)
+''');
   }
 
   static Future<void> seedUnits(Database db) async {
@@ -223,16 +308,12 @@ class DatabaseSchema {
     ];
 
     for (final unit in units) {
-      await db.insert(
-        'units',
-        {
-          'id': _unitId(unit['symbol']!),
-          'name': unit['name'],
-          'symbol': unit['symbol'],
-          'is_active': 1,
-        },
-        conflictAlgorithm: ConflictAlgorithm.ignore,
-      );
+      await db.insert('units', {
+        'id': _unitId(unit['symbol']!),
+        'name': unit['name'],
+        'symbol': unit['symbol'],
+        'is_active': 1,
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
     }
   }
 

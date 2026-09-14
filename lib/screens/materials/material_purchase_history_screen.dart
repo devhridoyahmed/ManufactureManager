@@ -20,7 +20,9 @@ class _MaterialPurchaseHistoryScreenState
   final MaterialPurchasesRepository _repository =
       MaterialPurchasesRepository();
 
-  bool _isLoading = true;
+  bool _isLoading = false;
+  bool _isDeleting = false;
+
   String? _errorMessage;
 
   List<Map<String, Object?>> _purchases = [];
@@ -63,18 +65,18 @@ class _MaterialPurchaseHistoryScreenState
       final String materialId =
           widget.material['id'] as String;
 
-      final purchases =
+      final List<Map<String, Object?>> purchases =
           await _repository.getPurchases(materialId);
 
-      final currentStock =
+      final double currentStock =
           await _repository.getCurrentStock(materialId);
 
-      final totalPurchased =
+      final double totalPurchased =
           await _repository.getTotalPurchasedQuantity(
         materialId,
       );
 
-      final totalCost =
+      final double totalCost =
           await _repository.getTotalPurchaseCost(
         materialId,
       );
@@ -102,12 +104,103 @@ class _MaterialPurchaseHistoryScreenState
     }
   }
 
+  Future<void> _deletePurchase(
+    Map<String, Object?> purchase,
+  ) async {
+    final String purchaseId =
+        purchase['id'] as String;
+
+    final double quantity =
+        (purchase['quantity'] as num?)?.toDouble() ?? 0;
+
+    final String quantityText =
+        '${_formatNumber(quantity)}'
+        '${_unitName.isEmpty ? '' : ' $_unitName'}';
+
+    final bool? confirmed =
+        await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Delete Purchase?'),
+          content: Text(
+            'This will delete the purchase of '
+            '$quantityText and update your stock.\n\n'
+            'This action cannot be undone.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(dialogContext).pop(false);
+              },
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () {
+                Navigator.of(dialogContext).pop(true);
+              },
+              child: const Text('Delete'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true || !mounted) {
+      return;
+    }
+
+    setState(() {
+      _isDeleting = true;
+    });
+
+    try {
+      await _repository.deletePurchase(
+        purchaseId,
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Purchase deleted and stock updated.',
+          ),
+        ),
+      );
+
+      await _loadHistory();
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(error.toString()),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isDeleting = false;
+        });
+      }
+    }
+  }
+
   String _formatNumber(double value) {
     if (value == value.roundToDouble()) {
       return value.toInt().toString();
     }
 
     return value.toStringAsFixed(2);
+  }
+
+  String _formatMoney(double value) {
+    return '৳ ${_formatNumber(value)}';
   }
 
   String _formatDate(Object? value) {
@@ -161,6 +254,11 @@ class _MaterialPurchaseHistoryScreenState
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 16),
+              Text(
+                _errorMessage!,
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 16),
               ElevatedButton(
                 onPressed: _loadHistory,
                 child: const Text('Retry'),
@@ -174,6 +272,7 @@ class _MaterialPurchaseHistoryScreenState
     return RefreshIndicator(
       onRefresh: _loadHistory,
       child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(16),
         children: [
           Text(
@@ -185,7 +284,6 @@ class _MaterialPurchaseHistoryScreenState
                   fontWeight: FontWeight.bold,
                 ),
           ),
-
           const SizedBox(height: 16),
 
           Row(
@@ -216,8 +314,7 @@ class _MaterialPurchaseHistoryScreenState
 
           _SummaryCard(
             title: 'Total Purchase Cost',
-            value:
-                '৳ ${_formatNumber(_totalCost)}',
+            value: _formatMoney(_totalCost),
             icon: Icons.payments_outlined,
           ),
 
@@ -252,7 +349,12 @@ class _MaterialPurchaseHistoryScreenState
                 purchase: purchase,
                 unitName: _unitName,
                 formatNumber: _formatNumber,
+                formatMoney: _formatMoney,
                 formatDate: _formatDate,
+                isDeleting: _isDeleting,
+                onDelete: () => _deletePurchase(
+                  purchase,
+                ),
               ),
             ),
         ],
@@ -317,30 +419,32 @@ class _PurchaseCard extends StatelessWidget {
     required this.purchase,
     required this.unitName,
     required this.formatNumber,
+    required this.formatMoney,
     required this.formatDate,
+    required this.isDeleting,
+    required this.onDelete,
   });
 
   final Map<String, Object?> purchase;
   final String unitName;
+
   final String Function(double value) formatNumber;
+  final String Function(double value) formatMoney;
   final String Function(Object? value) formatDate;
+
+  final bool isDeleting;
+  final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {
     final double quantity =
-        (purchase['quantity'] as num?)
-                ?.toDouble() ??
-            0;
+        (purchase['quantity'] as num?)?.toDouble() ?? 0;
 
     final double totalCost =
-        (purchase['total_cost'] as num?)
-                ?.toDouble() ??
-            0;
+        (purchase['total_cost'] as num?)?.toDouble() ?? 0;
 
     final double unitCost =
-        (purchase['unit_cost'] as num?)
-                ?.toDouble() ??
-            0;
+        (purchase['unit_cost'] as num?)?.toDouble() ?? 0;
 
     final String supplier =
         purchase['supplier_name'] as String? ?? '';
@@ -376,6 +480,14 @@ class _PurchaseCard extends StatelessWidget {
                         ),
                   ),
                 ),
+                IconButton(
+                  tooltip: 'Delete purchase',
+                  onPressed:
+                      isDeleting ? null : onDelete,
+                  icon: const Icon(
+                    Icons.delete_outline,
+                  ),
+                ),
               ],
             ),
 
@@ -390,14 +502,13 @@ class _PurchaseCard extends StatelessWidget {
 
             _PurchaseInfoRow(
               label: 'Total cost',
-              value:
-                  '৳ ${formatNumber(totalCost)}',
+              value: formatMoney(totalCost),
             ),
 
             _PurchaseInfoRow(
               label: 'Unit cost',
               value:
-                  '৳ ${formatNumber(unitCost)}'
+                  '${formatMoney(unitCost)}'
                   '${unitName.isEmpty ? '' : ' / $unitName'}',
             ),
 

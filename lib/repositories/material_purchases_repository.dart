@@ -32,7 +32,7 @@ class MaterialPurchasesRepository {
   ///
   /// Example:
   /// 10 meters of rope purchased for 1,500 BDT.
-  /// unit cost = 150 BDT per meter.
+  /// Unit cost = 150 BDT per meter.
   Future<String> createPurchase({
     required String materialId,
     required double quantity,
@@ -112,7 +112,7 @@ class MaterialPurchasesRepository {
   /// Returns the current stock for one material.
   ///
   /// Purchase = positive quantity.
-  /// Future material consumption = negative quantity.
+  /// Stock removal = negative quantity.
   Future<double> getCurrentStock(String materialId) async {
     final Database db = await _appDatabase.database;
     final String businessId = await getBusinessId();
@@ -218,10 +218,14 @@ class MaterialPurchasesRepository {
     return 0;
   }
 
-    /// Removes material stock.
+  /// Removes material stock.
   ///
-  /// Stock removal is stored as a negative quantity
-  /// in material_stock_movements.
+  /// The quantity is saved as a negative stock movement.
+  ///
+  /// Example:
+  /// Current stock = 100 meters
+  /// Remove stock = 15 meters
+  /// New stock = 85 meters
   Future<void> removeStock({
     required String materialId,
     required double quantity,
@@ -230,14 +234,191 @@ class MaterialPurchasesRepository {
     DateTime? movementDate,
   }) async {
     if (quantity <= 0) {
+      throw ArgumentError('Stock removal quantity must be greater than zero.');
+    }
+
+    if (reason.trim().isEmpty) {
+      throw ArgumentError('Stock removal reason is required.');
+    }
+
+    final Database db = await _appDatabase.database;
+    final String businessId = await getBusinessId();
+
+    final double currentStock = await getCurrentStock(materialId);
+
+    if (quantity > currentStock) {
+      throw StateError('Cannot remove more stock than currently available.');
+    }
+
+    final String movementId = _uuid.v4();
+    final String now = DateTime.now().toIso8601String();
+
+    final DateTime effectiveMovementDate = movementDate ?? DateTime.now();
+
+    final String movementDateValue = effectiveMovementDate.toIso8601String();
+
+    await db.transaction((transaction) async {
+      // Make sure the material belongs to the current business.
+      final List<Map<String, Object?>> materials = await transaction.query(
+        'materials',
+        columns: ['id'],
+        where: 'id = ? AND business_id = ?',
+        whereArgs: [materialId, businessId],
+        limit: 1,
+      );
+
+      if (materials.isEmpty) {
+        throw StateError('Material not found for this business.');
+      }
+
+      await transaction.insert('material_stock_movements', {
+        'id': movementId,
+        'business_id': businessId,
+        'material_id': materialId,
+        'movement_type': 'REMOVAL',
+        'quantity': -quantity,
+        'reference_id': null,
+        'notes':
+            '${reason.trim()}'
+            '${notes == null || notes.trim().isEmpty ? '' : '\n${notes.trim()}'}',
+        'movement_date': movementDateValue,
+        'created_at': now,
+      });
+    });
+  }
+
+  /// Returns all stock movements for one material.
+  ///
+  /// Purchase quantities are positive.
+  /// Removal quantities are negative.
+  Future<List<Map<String, Object?>>> getStockMovements(
+    String materialId,
+  ) async {
+    final Database db = await _appDatabase.database;
+    final String businessId = await getBusinessId();
+
+    return db.query(
+      'material_stock_movements',
+      columns: [
+        'id',
+        'material_id',
+        'movement_type',
+        'quantity',
+        'reference_id',
+        'notes',
+        'movement_date',
+        'created_at',
+      ],
+      where: 'material_id = ? AND business_id = ?',
+      whereArgs: [materialId, businessId],
+      orderBy: 'movement_date DESC',
+    );
+  }
+
+  /// Deletes one purchase and reverses its stock movement.
+  ///
+  /// Example:
+  /// Purchase = 10 meters
+  /// Delete purchase = stock decreases by 10 meters.
+  ///
+  /// Both records are deleted inside one transaction.
+  Future<void> deletePurchase(String purchaseId) async {
+    final Database db = await _appDatabase.database;
+    final String businessId = await getBusinessId();
+
+    await db.transaction((transaction) async {
+      // Find the purchase belonging to the current business.
+      final List<Map<String, Object?>> purchases = await transaction.query(
+        'material_purchases',
+        columns: ['id', 'material_id', 'quantity'],
+        where: 'id = ? AND business_id = ?',
+        whereArgs: [purchaseId, businessId],
+        limit: 1,
+      );
+
+      if (purchases.isEmpty) {
+        throw StateError('Purchase not found for this business.');
+      }
+
+      final String materialId = purchases.first['material_id'] as String;
+
+      final double quantity = (purchases.first['quantity'] as num).toDouble();
+
+      // Find the stock movement connected to this purchase.
+      final List<Map<String, Object?>> movements = await transaction.query(
+        'material_stock_movements',
+        columns: ['id'],
+        where: '''
+        business_id = ?
+        AND material_id = ?
+        AND movement_type = ?
+        AND reference_id = ?
+      ''',
+        whereArgs: [businessId, materialId, 'PURCHASE', purchaseId],
+        limit: 1,
+      );
+
+      if (movements.isEmpty) {
+        throw StateError('Stock movement for this purchase was not found.');
+      }
+
+      // Check current stock before deleting.
+      final List<Map<String, Object?>> stockResult = await transaction.rawQuery(
+        '''
+      SELECT COALESCE(
+        SUM(quantity),
+        0
+      ) AS current_stock
+      FROM material_stock_movements
+      WHERE material_id = ?
+        AND business_id = ?
+      ''',
+        [materialId, businessId],
+      );
+
+      final double currentStock = (stockResult.first['current_stock'] as num)
+          .toDouble();
+
+      if (quantity > currentStock) {
+        throw StateError(
+          'This purchase cannot be deleted because '
+          'the stock has already been used or removed.',
+        );
+      }
+
+      // Delete the connected stock movement first.
+      await transaction.delete(
+        'material_stock_movements',
+        where: 'id = ? AND business_id = ?',
+        whereArgs: [movements.first['id'], businessId],
+      );
+
+      // Delete the purchase record.
+      await transaction.delete(
+        'material_purchases',
+        where: 'id = ? AND business_id = ?',
+        whereArgs: [purchaseId, businessId],
+      );
+    });
+  }
+
+    Future<void> adjustStock({
+    required String materialId,
+    required double quantity,
+    required bool increase,
+    required String reason,
+    String? notes,
+    DateTime? movementDate,
+  }) async {
+    if (quantity <= 0) {
       throw ArgumentError(
-        'Stock removal quantity must be greater than zero.',
+        'Adjustment quantity must be greater than zero.',
       );
     }
 
     if (reason.trim().isEmpty) {
       throw ArgumentError(
-        'Stock removal reason is required.',
+        'Adjustment reason is required.',
       );
     }
 
@@ -247,9 +428,12 @@ class MaterialPurchasesRepository {
     final double currentStock =
         await getCurrentStock(materialId);
 
-    if (quantity > currentStock) {
+    final double movementQuantity =
+        increase ? quantity : -quantity;
+
+    if (!increase && quantity > currentStock) {
       throw StateError(
-        'Cannot remove more stock than currently available.',
+        'Cannot decrease stock below zero.',
       );
     }
 
@@ -268,7 +452,10 @@ class MaterialPurchasesRepository {
         'materials',
         columns: ['id'],
         where: 'id = ? AND business_id = ?',
-        whereArgs: [materialId, businessId],
+        whereArgs: [
+          materialId,
+          businessId,
+        ],
         limit: 1,
       );
 
@@ -284,8 +471,8 @@ class MaterialPurchasesRepository {
           'id': movementId,
           'business_id': businessId,
           'material_id': materialId,
-          'movement_type': 'REMOVAL',
-          'quantity': -quantity,
+          'movement_type': 'ADJUSTMENT',
+          'quantity': movementQuantity,
           'reference_id': null,
           'notes': '${reason.trim()}'
               '${notes == null || notes.trim().isEmpty ? '' : '\n${notes.trim()}'}',
