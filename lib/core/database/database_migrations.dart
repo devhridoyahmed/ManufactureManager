@@ -34,9 +34,11 @@ class DatabaseMigrations {
               notes TEXT,
               created_at TEXT NOT NULL,
               updated_at TEXT NOT NULL,
+
               FOREIGN KEY (business_id)
                 REFERENCES businesses(id)
                 ON DELETE CASCADE,
+
               FOREIGN KEY (material_id)
                 REFERENCES materials(id)
                 ON DELETE RESTRICT
@@ -54,9 +56,11 @@ class DatabaseMigrations {
               notes TEXT,
               movement_date TEXT NOT NULL,
               created_at TEXT NOT NULL,
+
               FOREIGN KEY (business_id)
                 REFERENCES businesses(id)
                 ON DELETE CASCADE,
+
               FOREIGN KEY (material_id)
                 REFERENCES materials(id)
                 ON DELETE RESTRICT
@@ -99,175 +103,392 @@ class DatabaseMigrations {
 
         case 6:
           await db.execute('''
-    CREATE TABLE IF NOT EXISTS recipes (
-      id TEXT PRIMARY KEY,
-      business_id TEXT NOT NULL,
-      name TEXT NOT NULL,
-      description TEXT,
-      labour_hours REAL NOT NULL DEFAULT 0,
-      labour_rate REAL NOT NULL DEFAULT 0,
-      notes TEXT,
-      is_active INTEGER NOT NULL DEFAULT 1,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      UNIQUE (business_id, name),
-      FOREIGN KEY (business_id)
-        REFERENCES businesses(id)
-        ON DELETE CASCADE
-    )
-  ''');
+            CREATE TABLE IF NOT EXISTS recipes (
+              id TEXT PRIMARY KEY,
+              business_id TEXT NOT NULL,
+              name TEXT NOT NULL,
+              description TEXT,
+              labour_hours REAL NOT NULL DEFAULT 0,
+              labour_rate REAL NOT NULL DEFAULT 0,
+              notes TEXT,
+              is_active INTEGER NOT NULL DEFAULT 1,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+
+              UNIQUE (business_id, name),
+
+              FOREIGN KEY (business_id)
+                REFERENCES businesses(id)
+                ON DELETE CASCADE
+            )
+          ''');
 
           await db.execute('''
-    CREATE INDEX IF NOT EXISTS
-    idx_recipes_business
-    ON recipes(business_id)
-  ''');
+            CREATE INDEX IF NOT EXISTS
+            idx_recipes_business
+            ON recipes(business_id)
+          ''');
 
           break;
 
         case 7:
           await db.execute('''
-    CREATE TABLE IF NOT EXISTS recipe_ingredients (
-      id TEXT PRIMARY KEY,
-      business_id TEXT NOT NULL,
-      recipe_id TEXT NOT NULL,
-      material_id TEXT NOT NULL,
-      quantity REAL NOT NULL,
-      unit_id TEXT NOT NULL,
-      notes TEXT,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL,
-      FOREIGN KEY (business_id)
-        REFERENCES businesses(id)
-        ON DELETE CASCADE,
-      FOREIGN KEY (recipe_id)
-        REFERENCES recipes(id)
-        ON DELETE CASCADE,
-      FOREIGN KEY (material_id)
-        REFERENCES materials(id)
-        ON DELETE RESTRICT,
-      FOREIGN KEY (unit_id)
-        REFERENCES units(id)
-        ON DELETE RESTRICT
-    )
-  ''');
+            CREATE TABLE IF NOT EXISTS recipe_ingredients (
+              id TEXT PRIMARY KEY,
+              business_id TEXT NOT NULL,
+              recipe_id TEXT NOT NULL,
+              material_id TEXT NOT NULL,
+              quantity REAL NOT NULL,
+              unit_id TEXT NOT NULL,
+              notes TEXT,
+              created_at TEXT NOT NULL,
+              updated_at TEXT NOT NULL,
+
+              FOREIGN KEY (business_id)
+                REFERENCES businesses(id)
+                ON DELETE CASCADE,
+
+              FOREIGN KEY (recipe_id)
+                REFERENCES recipes(id)
+                ON DELETE CASCADE,
+
+              FOREIGN KEY (material_id)
+                REFERENCES materials(id)
+                ON DELETE RESTRICT,
+
+              FOREIGN KEY (unit_id)
+                REFERENCES units(id)
+                ON DELETE RESTRICT
+            )
+          ''');
+
+          await db.execute('''
+            CREATE INDEX IF NOT EXISTS
+            idx_recipe_ingredients_recipe
+            ON recipe_ingredients(recipe_id)
+          ''');
+
+          await db.execute('''
+            CREATE INDEX IF NOT EXISTS
+            idx_recipe_ingredients_material
+            ON recipe_ingredients(material_id)
+          ''');
+
+          await db.execute('''
+            CREATE INDEX IF NOT EXISTS
+            idx_recipe_ingredients_business
+            ON recipe_ingredients(business_id)
+          ''');
+
+          break;
 
         case 8:
           await db.transaction((transaction) async {
             await transaction.execute('''
-      CREATE TABLE recipe_ingredients_new (
-        id TEXT PRIMARY KEY,
-        business_id TEXT NOT NULL,
-        recipe_id TEXT NOT NULL,
-        material_id TEXT,
-        component_recipe_id TEXT,
-        quantity REAL NOT NULL,
-        unit_id TEXT NOT NULL,
-        notes TEXT,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
+              CREATE TABLE recipe_ingredients_new (
+                id TEXT PRIMARY KEY,
+                business_id TEXT NOT NULL,
+                recipe_id TEXT NOT NULL,
+                material_id TEXT,
+                component_recipe_id TEXT,
+                quantity REAL NOT NULL,
+                unit_id TEXT NOT NULL,
+                notes TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
 
-        CHECK (
-          (material_id IS NOT NULL AND component_recipe_id IS NULL)
-          OR
-          (material_id IS NULL AND component_recipe_id IS NOT NULL)
-        ),
+                CHECK (
+                  (material_id IS NOT NULL AND component_recipe_id IS NULL)
+                  OR
+                  (material_id IS NULL AND component_recipe_id IS NOT NULL)
+                ),
 
-        FOREIGN KEY (business_id)
-          REFERENCES businesses(id)
-          ON DELETE CASCADE,
+                FOREIGN KEY (business_id)
+                  REFERENCES businesses(id)
+                  ON DELETE CASCADE,
 
-        FOREIGN KEY (recipe_id)
-          REFERENCES recipes(id)
-          ON DELETE CASCADE,
+                FOREIGN KEY (recipe_id)
+                  REFERENCES recipes(id)
+                  ON DELETE CASCADE,
 
-        FOREIGN KEY (material_id)
-          REFERENCES materials(id)
-          ON DELETE RESTRICT,
+                FOREIGN KEY (material_id)
+                  REFERENCES materials(id)
+                  ON DELETE RESTRICT,
 
-        FOREIGN KEY (component_recipe_id)
-          REFERENCES recipes(id)
-          ON DELETE RESTRICT,
+                FOREIGN KEY (component_recipe_id)
+                  REFERENCES recipes(id)
+                  ON DELETE RESTRICT,
 
-        FOREIGN KEY (unit_id)
-          REFERENCES units(id)
-          ON DELETE RESTRICT
-      )
-    ''');
+                FOREIGN KEY (unit_id)
+                  REFERENCES units(id)
+                  ON DELETE RESTRICT
+              )
+            ''');
 
             await transaction.execute('''
-      INSERT INTO recipe_ingredients_new (
-        id,
-        business_id,
-        recipe_id,
-        material_id,
-        component_recipe_id,
-        quantity,
-        unit_id,
-        notes,
-        created_at,
-        updated_at
-      )
-      SELECT
-        id,
-        business_id,
-        recipe_id,
-        material_id,
-        NULL,
-        quantity,
-        unit_id,
-        notes,
-        created_at,
-        updated_at
-      FROM recipe_ingredients
-    ''');
+              INSERT INTO recipe_ingredients_new (
+                id,
+                business_id,
+                recipe_id,
+                material_id,
+                component_recipe_id,
+                quantity,
+                unit_id,
+                notes,
+                created_at,
+                updated_at
+              )
+              SELECT
+                id,
+                business_id,
+                recipe_id,
+                material_id,
+                NULL,
+                quantity,
+                unit_id,
+                notes,
+                created_at,
+                updated_at
+              FROM recipe_ingredients
+            ''');
 
             await transaction.execute('DROP TABLE recipe_ingredients');
 
             await transaction.execute('''
-      ALTER TABLE recipe_ingredients_new
-      RENAME TO recipe_ingredients
-    ''');
+              ALTER TABLE recipe_ingredients_new
+              RENAME TO recipe_ingredients
+            ''');
 
             await transaction.execute('''
-      CREATE INDEX idx_recipe_ingredients_recipe
-      ON recipe_ingredients(recipe_id)
-    ''');
+              CREATE INDEX idx_recipe_ingredients_recipe
+              ON recipe_ingredients(recipe_id)
+            ''');
 
             await transaction.execute('''
-      CREATE INDEX idx_recipe_ingredients_material
-      ON recipe_ingredients(material_id)
-    ''');
+              CREATE INDEX idx_recipe_ingredients_material
+              ON recipe_ingredients(material_id)
+            ''');
 
             await transaction.execute('''
-      CREATE INDEX idx_recipe_ingredients_business
-      ON recipe_ingredients(business_id)
-    ''');
+              CREATE INDEX idx_recipe_ingredients_business
+              ON recipe_ingredients(business_id)
+            ''');
 
             await transaction.execute('''
-      CREATE INDEX idx_recipe_ingredients_component_recipe
-      ON recipe_ingredients(component_recipe_id)
-    ''');
+              CREATE INDEX idx_recipe_ingredients_component_recipe
+              ON recipe_ingredients(component_recipe_id)
+            ''');
           });
 
-          await db.execute('''
-    CREATE INDEX IF NOT EXISTS
-    idx_recipe_ingredients_recipe
-    ON recipe_ingredients(recipe_id)
-  ''');
+          break;
 
-          await db.execute('''
-    CREATE INDEX IF NOT EXISTS
-    idx_recipe_ingredients_material
-    ON recipe_ingredients(material_id)
-  ''');
+        case 9:
+          await db.transaction((transaction) async {
+            await transaction.execute('''
+              CREATE TABLE products (
+                id TEXT PRIMARY KEY,
+                business_id TEXT NOT NULL,
+                recipe_id TEXT NOT NULL,
+                unit_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                selling_price REAL NOT NULL DEFAULT 0,
+                description TEXT,
+                notes TEXT,
+                image_path TEXT,
+                is_active INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
 
-          await db.execute('''
-    CREATE INDEX IF NOT EXISTS
-    idx_recipe_ingredients_business
-    ON recipe_ingredients(business_id)
-  ''');
+                UNIQUE (business_id, name),
 
+                FOREIGN KEY (business_id)
+                  REFERENCES businesses(id)
+                  ON DELETE CASCADE,
+
+                FOREIGN KEY (recipe_id)
+                  REFERENCES recipes(id)
+                  ON DELETE RESTRICT,
+
+                FOREIGN KEY (unit_id)
+                  REFERENCES units(id)
+                  ON DELETE RESTRICT
+              )
+            ''');
+
+            await transaction.execute('''
+              CREATE TABLE product_stock_movements (
+                id TEXT PRIMARY KEY,
+                business_id TEXT NOT NULL,
+                product_id TEXT NOT NULL,
+                movement_type TEXT NOT NULL,
+                quantity REAL NOT NULL,
+                reference_id TEXT,
+                notes TEXT,
+                movement_date TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+
+                FOREIGN KEY (business_id)
+                  REFERENCES businesses(id)
+                  ON DELETE CASCADE,
+
+                FOREIGN KEY (product_id)
+                  REFERENCES products(id)
+                  ON DELETE RESTRICT
+              )
+            ''');
+
+            await transaction.execute('''
+              CREATE TABLE production_records (
+                id TEXT PRIMARY KEY,
+                business_id TEXT NOT NULL,
+                product_id TEXT NOT NULL,
+                recipe_id TEXT NOT NULL,
+                quantity REAL NOT NULL,
+                maker_name TEXT,
+                material_cost REAL NOT NULL DEFAULT 0,
+                labour_cost REAL NOT NULL DEFAULT 0,
+                production_expense REAL NOT NULL DEFAULT 0,
+                total_cost REAL NOT NULL DEFAULT 0,
+                production_date TEXT NOT NULL,
+                notes TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+
+                FOREIGN KEY (business_id)
+                  REFERENCES businesses(id)
+                  ON DELETE CASCADE,
+
+                FOREIGN KEY (product_id)
+                  REFERENCES products(id)
+                  ON DELETE RESTRICT,
+
+                FOREIGN KEY (recipe_id)
+                  REFERENCES recipes(id)
+                  ON DELETE RESTRICT
+              )
+            ''');
+
+            await transaction.execute('''
+              CREATE INDEX idx_products_business
+              ON products(business_id)
+            ''');
+
+            await transaction.execute('''
+              CREATE INDEX idx_products_recipe
+              ON products(recipe_id)
+            ''');
+
+            await transaction.execute('''
+              CREATE INDEX idx_product_stock_movements_product
+              ON product_stock_movements(product_id)
+            ''');
+
+            await transaction.execute('''
+              CREATE INDEX idx_product_stock_movements_business
+              ON product_stock_movements(business_id)
+            ''');
+
+            await transaction.execute('''
+              CREATE INDEX idx_production_records_product
+              ON production_records(product_id)
+            ''');
+
+            await transaction.execute('''
+              CREATE INDEX idx_production_records_business
+              ON production_records(business_id)
+            ''');
+          });
+
+          break;
+
+        case 10:
+          await db.transaction((transaction) async {
+            await transaction.execute('''
+              CREATE TABLE sales (
+                id TEXT PRIMARY KEY,
+                business_id TEXT NOT NULL,
+                customer_name TEXT,
+                customer_mobile TEXT,
+                sale_date TEXT NOT NULL,
+                subtotal REAL NOT NULL DEFAULT 0,
+                platform_fee REAL NOT NULL DEFAULT 0,
+                delivery_cost REAL NOT NULL DEFAULT 0,
+                other_expense REAL NOT NULL DEFAULT 0,
+                total_sale_amount REAL NOT NULL DEFAULT 0,
+                total_cost REAL NOT NULL DEFAULT 0,
+                profit REAL NOT NULL DEFAULT 0,
+                profit_margin REAL NOT NULL DEFAULT 0,
+                paid_amount REAL NOT NULL DEFAULT 0,
+                due_amount REAL NOT NULL DEFAULT 0,
+                payment_status TEXT NOT NULL DEFAULT 'UNPAID',
+                delivery_status TEXT NOT NULL DEFAULT 'PENDING',
+                notes TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (business_id)
+                  REFERENCES businesses(id)
+                  ON DELETE CASCADE
+              )
+            ''');
+
+            await transaction.execute('''
+              CREATE TABLE sale_items (
+                id TEXT PRIMARY KEY,
+                business_id TEXT NOT NULL,
+                sale_id TEXT NOT NULL,
+                product_id TEXT NOT NULL,
+                quantity REAL NOT NULL,
+                unit_price REAL NOT NULL DEFAULT 0,
+                target_price REAL NOT NULL DEFAULT 0,
+                unit_cost REAL NOT NULL DEFAULT 0,
+                total_price REAL NOT NULL DEFAULT 0,
+                total_cost REAL NOT NULL DEFAULT 0,
+                profit REAL NOT NULL DEFAULT 0,
+                notes TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (business_id)
+                  REFERENCES businesses(id)
+                  ON DELETE CASCADE,
+                FOREIGN KEY (sale_id)
+                  REFERENCES sales(id)
+                  ON DELETE CASCADE,
+                FOREIGN KEY (product_id)
+                  REFERENCES products(id)
+                  ON DELETE RESTRICT
+              )
+            ''');
+
+            await transaction.execute('''
+              CREATE INDEX idx_sales_business
+              ON sales(business_id)
+            ''');
+
+            await transaction.execute('''
+              CREATE INDEX idx_sales_sale_date
+              ON sales(sale_date)
+            ''');
+
+            await transaction.execute('''
+              CREATE INDEX idx_sales_payment_status
+              ON sales(payment_status)
+            ''');
+
+            await transaction.execute('''
+              CREATE INDEX idx_sale_items_sale
+              ON sale_items(sale_id)
+            ''');
+
+            await transaction.execute('''
+              CREATE INDEX idx_sale_items_product
+              ON sale_items(product_id)
+            ''');
+
+            await transaction.execute('''
+              CREATE INDEX idx_sale_items_business
+              ON sale_items(business_id)
+            ''');
+          });
           break;
       }
     }
